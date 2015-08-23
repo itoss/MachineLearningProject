@@ -1,0 +1,150 @@
+---
+title: "Machine Learning Project"
+author: "Kaveh Dianati"
+date: "August 23, 2015"
+output: html_document
+---
+# Qualitative Activity Recognition of Weight Lifting Exercises
+## Coursera's *Practical Machine Learning* Course Project
+
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### Data 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+### Building the Model
+The following are the steps followed in my script in order to build the appropriate prediction model, aimed at predicting the 'class' of the activity the subject is performing based on measurements from the accelerometers:
+
+1. Download the datasets.
+2. Read the datasets.
+3. 'Clean' the training and test datasets, while extracting only those features that are going ot be 'useful' in our prediction model. (The selection procedure is explained in the next section.)
+4. Build a Random Forest prediction model based on all 'useful' features.
+5. Predict outcomes for the test set (which is already 'cleaned' in a similar fashion as the training set.)
+6. Write answers into files for upload.
+7. Report total run time, as well as proportion of time spent only in modeling.
+
+### Detailed Steps
+In this section, I am going to explain the choices I made while describing the steps listed above in more detail, with reference to the actual code. (It should be noted that the R Script itself is well-documented using comments.)
+
+1. Download the datasets.
+
+First things first. Attach the indispensable `randomForest` library.
+```{r, results="hide"}
+library(randomForest)
+```
+
+Download the training and test datasets into the current working directory:
+
+```{r}
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(urlTrain, 'training_dataset.csv', method = 'curl', quiet = T)
+download.file(urlTest, 'testing_dataset.csv', method = 'curl', quiet = T)
+```
+
+2. Read the two datasets.
+
+Before reading the datasets, I start the clock in order to be able to measure the total run time of the script at the end.
+
+```{r}
+start_time <- proc.time()[3]
+```
+
+```{r}
+training <- read.csv('training_dataset.csv')
+testing <- read.csv('testing_dataset.csv')
+```
+
+3. 'Clean' the training and test datasets.
+
+By quickliy skimming the testing data, it becomes obvious that many of the features (variables) contain nothing but NAs, and therefore cannot be useful in prediction. Therefore we conclude that only those variables in the test set that are not fully NAs would be useful in building the model. Below we extract the indices for such useful variables (those having at least one non-NA value) and select those variables for our modeling in the training set. The first line just takes the indices where NOT all values are NA.
+Finally, we select only the useful indices in the testing set as well, for use in our prediction later.
+
+```{r}
+useful_indices <- colSums(is.na(testing))/nrow(testing) != 1
+useful_training <- training[,useful_indices]
+useful_testing <- testing[,useful_indices]
+```
+
+Then we also need to take out book-keeping variables from our training dataset, since they are not useful in training the model, and will result in a misleading accuracy for our prediction model. These include columns with no actual measurement data, from 'X' to 'num_window'.
+
+```{r, echo=FALSE, comment=NA}
+print(head(subset(useful_training, select = X:num_window)), row.names = F)
+```
+
+```{r}
+useful_training <- subset(useful_training, select = -(X:num_window))
+```
+
+4. Build a Random Forest prediction model.
+
+Here, we build a random forest model taking as predictors all features (all columns of the cleaned dataset, except the last one, which is our outcome variable).
+We would also like to measure the time it takes R to build our model, thus the use of the `proc.time()` function. We take the 3rd element of `proc.time()` which is the *elapsed time*, and then we need to `unclass` and `unname` in order to arrive at the number of seconds passed as a numeric. This value is then rounded up.
+
+```{r}
+start_time_RF <- proc.time()[3]
+RF <- randomForest(useful_training[,-ncol(useful_training)], useful_training[,ncol(useful_training)])
+modeling_time <- round(unname(unclass(proc.time()[3] - start_time_RF)), digits = 0)
+```
+
+5. Predict outcomes for the test set.
+We use caret's `predict` function on a test set which is already 'cleaned' as in Step 3 in order to arrive at our predictions for the 20 subjects/activities included in the test dataset.
+
+```{r, comment=NA}
+answers <- predict(RF, useful_testing)
+```
+
+```{r, echo=FALSE}
+print (answers)
+```
+
+6. Write answers into files for upload.
+We use the following function given on the assignment submission instruction page on the course website in order to write our answers to 20 separate files (one for each answer).
+
+```{r}
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+
+pml_write_files(answers)
+```
+
+7. Report total run time, as well as proportion of time spent only in modeling.
+
+Finally, we stop the clock, measure the total run time of the code, and report this along with the run time of just the RandomForest code, and the proportion of this in the total run time.
+
+```{r, results="hide"}
+# Stop the clock
+total_time <- round(unname(unclass(proc.time()[3] - start_time)), digits = 0)
+
+# Report total run time, as well as proportion of time spent only in modeling.
+print(paste("Running the entire code - except downloading datasets - took", total_time, "seconds."))
+print(paste("Building the Random Forest model took", modeling_time, "seconds, which constitutes", round(modeling_time/total_time, digits = 2)*100, "percent of total run time."))
+```
+
+```{r, echo=FALSE, comment=NA}
+print(paste("Running the entire code - except downloading datasets - took", total_time, "seconds."))
+print(paste("Building the Random Forest model took", modeling_time, "seconds, which constitutes", round(modeling_time/total_time, digits = 2)*100, "percent of total run time."))
+```
+
+### Note on cross-validation and out-of-sample error
+I have not explicitly used cross-validation as this is already built into the Random Forest function in R. As for expected out-of-sample error, an estimate of this, called out-of-bag (OOB) error, is also already calculated by the geniuses who developed the Random Forest function in R, as seen below (OOB estimate of  error rate: 0.28%).
+
+```{r, echo=FALSE, comment=NA}
+print (RF)
+```
